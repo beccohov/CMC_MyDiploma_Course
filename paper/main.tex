@@ -16,22 +16,18 @@
 
 
 
-\title{A template for the \emph{arxiv} style}
+\title{Исследование масштабирования размера \\ оптимального батча в больших языковых моделях}
 
-\author{ David S.~Hippocampus\thanks{Use footnote for providing further
-		information about author (webpage, alternative
-		address)---\emph{not} for acknowledging funding agencies.} \\
-	Department of Computer Science\\
-	Cranberry-Lemon University\\
-	Pittsburgh, PA 15213 \\
-	\texttt{hippo@cs.cranberry-lemon.edu} \\
+\author{ Бессонов А.С. \\
+	МГУ им. М.В. Ломоносова, \\
+	кафедра математических методов \\ прогнозирования, 417 группа\\
+	\texttt{beccohov.a@yandex.ru} \\
 	%% examples of more authors
 	\And
-	Elias D.~Striatum \\
-	Department of Electrical Engineering\\
-	Mount-Sheikh University\\
-	Santa Narimana, Levand \\
-	\texttt{stariate@ee.mount-sheikh.edu} \\
+        Дьяконов А.Г. \\
+	д-р физ.-мат. наук         \\
+	Центральный университет Тинькофф \thanks{Научный руководитель} \\
+	\texttt{djakonov@mail.ru} \\
 	%% \AND
 	%% Coauthor \\
 	%% Affiliation \\
@@ -66,7 +62,7 @@ pdfkeywords={First keyword, Second keyword, More},
 \maketitle
 
 \begin{abstract}
-	\lipsum[1]
+В данной статье исследуется связь между оптимальным размером батча при обучении языковых моделей. Нами были проведены эксперименты на широком спектре моделей, варьирующихся от 180M до 4B параметров. Каждая модель обучалась с использованием различных значений размера батча. Количество токенов, применяемых для предварительного обучения модели, зависит только от ее размера и задается величиной $P \times 50$, где $P$ - количество параметров модели. Результаты каждого измерения дали теоретическую оценку оптимального батча для каждой модели, подтверждающую универсальность использованной аппроксимации. Кроме того, была установлена экспериментальная зависимость между размером оптимального теоретического батча и размером модели, а также разработана математическая модель, позволяющая практически оценивать размер батча для больших моделей. Полученные значения приближенно соотносятся с текущими практическими значениями, которые широко принимаются в последнее время.
 \end{abstract}
 
 
