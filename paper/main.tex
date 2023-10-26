@@ -2,7 +2,7 @@
 \usepackage{arxiv}
 
 \usepackage[utf8]{inputenc}
-\usepackage[english, russian]{babel}
+\usepackage[english]{babel}
 \usepackage[T1]{fontenc}
 \usepackage{url}
 \usepackage{booktabs}
@@ -13,20 +13,23 @@
 \usepackage{graphicx}
 \usepackage{natbib}
 \usepackage{doi}
+\usepackage[dvipsnames]{xcolor}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{tablefootnote}
+\usepackage{amssymb}
 
 
+\title{Optimizing Computational Graph Configurations for TPU Compilers with GNNs}
 
-\title{Исследование масштабирования размера \\ оптимального батча в больших языковых моделях}
-
-\author{ Бессонов А.С. \\
-	МГУ им. М.В. Ломоносова, \\
-	кафедра математических методов \\ прогнозирования, 417 группа\\
+\author{ Bessonov A. \\
+	M. V. Lomonosov Moscow State University, \\
+	the departament of mathematical methods \\ of prediction , 417 group\\
 	\texttt{beccohov.a@yandex.ru} \\
 	%% examples of more authors
 	\And
-        Дьяконов А.Г. \\
-	д-р физ.-мат. наук         \\
-	Центральный университет Тинькофф \thanks{Научный руководитель} \\
+        Djakonov A. \\
+	Phd.         \\
+	Central Tinkoff University, Russia \thanks{Science advisor} \\
 	\texttt{djakonov@mail.ru} \\
 	%% \AND
 	%% Coauthor \\
@@ -62,112 +65,130 @@ pdfkeywords={First keyword, Second keyword, More},
 \maketitle
 
 \begin{abstract}
-В данной статье исследуется связь между оптимальным размером батча при обучении языковых моделей. Нами были проведены эксперименты на широком спектре моделей, варьирующихся от 180M до 4B параметров. Каждая модель обучалась с использованием различных значений размера батча. Количество токенов, применяемых для предварительного обучения модели, зависит только от ее размера и задается величиной $P \times 50$, где $P$ - количество параметров модели. Результаты каждого измерения дали теоретическую оценку оптимального батча для каждой модели, подтверждающую универсальность использованной аппроксимации. Кроме того, была установлена экспериментальная зависимость между размером оптимального теоретического батча и размером модели, а также разработана математическая модель, позволяющая практически оценивать размер батча для больших моделей. Полученные значения приближенно соотносятся с текущими практическими значениями, которые широко принимаются в последнее время.
+This paper is focused on the challenge of finding optimal compiler configurations for deep learning models, a prominent research area for both engineers and researchers. The importance of hardware performance evaluation models in code optimization is stressed, as it aid compilers in making heuristic decisions and determining the most suitable configuration for various computational programs. Owing to the large-scale nature of computational graphs, consisting of tens of thousands of nodes and edges, conventional analysis methods prove inadequate. An efficient approach is proposed for ranking computational graph configurations, employing graph neural networks, and considering their expected execution time on TPUs. Our method circumvents excessive computational costs and enables training on extensive graphs, making it a highly advantageous contribution to the field.
+
 \end{abstract}
 
 
-\keywords{Масштабирование моделей \and Языковые модели}
-\section{Введение}
-\quad Большие языковые модели в последнее десятиление занимают доминирующую роль как в сфере исследований, так и практическом применении. При этом обучение таких моделей требует значительных вычислительных ресурсов, что усложняет эксперименты с подбором гиперпараметров при приобучении. В недавних работах было уделено внимание тому, как масштабируются гиперпараметры подобных моделей при увеличеснии количества параметров. В данной работе исследуется, как должен изменяться размер обучающего батча модели в зависимости от количества параметров в модели.
+\keywords{TPU XLA \and Compiliers \and AI optimization}
+\section{Introduction}
+Achieving remarkable performance in a broad range of deep learning applications often hinges on increasing the size of models \cite{kaplan2020scaling}. Nevertheless, the escalation of model parameters introduces numerous challenges, particularly in the realm of training efficiency. Modern Tensor Processing Units (TPUs) and Graphics Processing Units (GPUs) accelerators are sensitive to computational graph configurations (\cite{mangpo2023tpugraphs}, \cite{norrie2020google}, \cite{patterson201850}). Factors such as tensor shapes, transformation orders, and various compiler and operation settings affect the efficiency of an identical computational task \cite{kumar2019scale}.
 
-\quad Недавно стало ясно, что подбор гиперпараметров имеет значительное влияние на качество финальной модели. Например, \cite{hoffmann2022training} указывает на то, что количество обучающих данных должно расти квазилинейно с увеличением размера модели. В \cite{OpenAI2023GPT4TR} также отмечается, что одним из методов для предсказания оптимальных гиперпараметров является построение моделей, способных предсказывать эти гиперпараметры.
+Deep learning models can be represented as graphs, with nodes signifying tensor operations (e.g., matrix multiplication, convolution, etc.) and edges denoting tensors. The compilation configuration determines how the compiler modifies the graph for a certain optimization pass. In particular, the XLA compiler (\cite{artemev2022memory}) can manage two types of configurations/optimizations, including:
 
-\quad Языковые модели начали быстро развиваться с появлением архитектуры трансформера (\cite{vaswani2017attention}). В последствии стало ясно, что главную роль в качестве таких моделей играет их размер (ссылки). Новую эру в развитии языковых  моделей ознаменовало появление архитекруры GPT-2 (\cite{radford2019language}), которая в то время стала SOTA среди языковых моделей. Последующее использование RLHF ознаменовало новую эпоху персональных ассистенов (\cite{ouyang2022training}).
+\begin{itemize}
+\item Layout configuration - directing the placement of graph tensors in physical memory by establishing dimension order for each operation node's input and output.
+\item Tile configuration - controlling the "tile" size of every fused subgraph within the XLA tiling setup.
+\end{itemize}
+
+To trial suggested approach, the TpuGraphs dataset \cite{mangpo2023tpugraphs} was employed as primary experimental resource. A primary challenge associated with computational graph exploration resides in their unwieldy dimensions, making standard graph models impractical (Fig. \ref{fig:tpu_dataset} shows specifics of data). Additionally, techniques that address ultra-large graphs prove excessive and yield suboptimal outcomes. On average, layout graphs contain approximately 10,000 to 50,000 nodes, rendering state-of-the-art (SOTA) graph model training use of the full context unfeasible (\cite{rampavsek2022recipe}, \cite{chen2022nagphormer}, \cite{zhang2023large}).
+
+To surmount these limitations, the Graph Segment Training (GST) \cite{cao2023learning} method is used, enabling the aggregation of large graph properties without necessitating training on the entire graph. This novel technique refrains from error backpropagation across the entire graph during the training process, thus offering a more efficient and effective solution for deep learning applications.  It is noticeable that the same problems with extending context are a hot topic in NLP (\cite{dai2019transformer}) as well as in RL (\cite{bessonov2023recurrent}).
+
+\begin{figure}
+\label{fig:tpu_dataset}
+    \centering
+    \includegraphics[scale=0.35]{figures/tpu_dataset.png}
+    \caption{Scale of TPUGraphs compared to other
+graph property prediction datasets.}
+\end{figure}
 
 
-\quad В настоящее время размеры языковых моделей превышают триллионы параметров, что создает множество инженерных трудностей при их обучении. Подбор гиперпараметров для таких моделей практически невозможен. Вместо этого необходимо использовать эвристики и предсказывать оптимальные значения гиперпараметров на основе меньших моделей.
 
-\quad В данной работе исследуется и предлагается эвристика для масштабирования размера обучающего батча. В экспериментах используются оптимальные модели с большим количеством параметров, а размеры моделей варьируются от 180M до 4B параметров. Проведенные эксперименты подтверждают характер масштабирования размера батча и дают оценки оптимальных размеров батчей для очень больших языковых моделей (70B, 140B и более).
-
-
-\section{Постановка задачи}
+\section{Problem statement}
 \label{sec:headings}
-%% Критерии, выборки, постановка экспериментов,
-Для более эффективной утилизации GPU требуются большие размеры батчей. С другой стороны, размер батча является гиперпараметром, значительно влияющем на качество итоговой обученной модели. В связи с этим возникает необходимость эвристик подбора и масштабирования размеров батча в зависимости от размера модели. Будет показано, что для получения оценки оптимальности батча недостаточно обучения на 10-15 \% от общего количества итераций. Соответственно, только проводя полные эксперименты, можно найти оптимальный размер батча. С другой стороны, с увеличением размеров модели такие эксперименты на практике не применимы. Это обосновывает потребность в наличии указанных эвристик.
-\section{Вычислительные эксперименты}
-Как упоминалось ранее, в данной задаче используется модель трансформерного декодера. В качестве обучающих данных  использовался набор из пяти датасетов - книги, веб-страницы, википедия, учебники, датасет гитхаба. Все датасеты были разделены на обучающую и валидационную выборки. Поскольку размер датасетов очень большой (несколько Тб), в качестве валидационной выборки бралось порядка 50 миллионов токенов с конца каждого датасета. При этом для обучения каждой из модели использоватись данные из начала каждого датасета в равной пропорции (семплирование данных из каждого датасета равномерно). В качестве критерия качества использовалось значение перплексии на валидационной части данных.
 
-Для каждой модели размера $N$ параметров в качестве обучающей выборки бралось $30 \times N$ токенов, итого поряка $6 \times N$ токенов из кажого датасета. Таким образом, число токенов на каждый параметр сохранялось постоянным. Для каждой модели были взяты от трех до пяти различных значений размера батча. Далее, мерой качества модели полагалось среднее значение перплексии на пяти датасетах на валидации. Таким образом, получаем от трех до пяти пар $(Q, B)$, где $Q$ - качество модели, $B$ - размер батча. По данному множеству точек строится приближение параболой. Для этой параболы вычисляется минимальное значение перплексии и размер батча, на котором она достигается. Полученное значение называется "оптимальным размером батча". Далее по полученному набору $(OB, M)$, где $OB$ - оптимальный размер батча, $M$ - размер модели, строится зависимость оптимального размера батча от размера модели. Полученная зависимость позволяет оценить оптимальный размер батча для больших моделей (больше 4B параметров). 
-\section{Экспериментальные данные}
-На Рис. \ref{fig:fig1} показаны примеры аппроксимаций для модедей. Всего было обучено 7 моделей с разными размерами батчей. Аппроксимация строилась по двум точкам, а третья попадала на построенную кривую, что подтверждает приемлемость выбора порядка апроксимации. Также это наименьший порядок аппрокимации, который согласуется с требованиями к аналитический зависимости - наличие минимума. 
+The primary task at hand involves obtaining a ranked list of layout configurations for a computational graph's dataset, in accordance with anticipated execution times. To gauge the quality of these rankings, we employ the Kendall rank correlation coefficient as a performance metric, reflecting the extent to which the model-predicted order aligns with the actual order of configurations by execution time.
 
-\begin{figure}
-	\centering
-	\includegraphics[width=0.9\textwidth]{../figures/approximations.png}
-	\caption{Sample figure caption.}
-	\label{fig:fig1}
-\end{figure}
-Таким образом, полученные аппроксимации помогают получить теоретическую оценку оптимального размера батча.
-\lipsum[5]
+Popular strategies for seeking optimal configurations, such as genetic algorithms \cite{taugtekin2021foga}, simulated annealing, and Langevin dynamics \cite{garriga2021exact}, necessitate access to a utility function (i.e., the model's prediction). Consequently, it is essential for the model to effectively maintain the configurations' order, ranging from the fastest to the slowest. This fidelity to ordering can be harnessed when searching for optimal configurations in compilers, substantiating the choice to use the Kendall rank correlation coefficient as the most suitable metric for evaluation (see Eq.\ref{eq:tau_coeff} for reference).
 \begin{equation}
-	\xi _{ij}(t)=P(x_{t}=i,x_{t+1}=j|y,v,w;\theta)= {\frac {\alpha _{i}(t)a^{w_t}_{ij}\beta _{j}(t+1)b^{v_{t+1}}_{j}(y_{t+1})}{\sum _{i=1}^{N} \sum _{j=1}^{N} \alpha _{i}(t)a^{w_t}_{ij}\beta _{j}(t+1)b^{v_{t+1}}_{j}(y_{t+1})}}
+\label{eq:tau_coeff}
+    \tau = \frac{2}{n(n-1)}\sum_{i < j} sgn(x_i - x_j) sgn(y_i - y_j)
 \end{equation}
+Given the distinct characteristics of the TPU dataset, it comprises two types of graphs (refer to Fig \ref{fig:tpu_graph} for illustration). Each node possesses an operation code, a feature vector, and an optional configuration feature vector specific to layout configurations. The large-scale nature of these graphs demands a training approach that accommodates their enormity. Consequently, we must employ high-quality approximate graph embedding techniques that minimize representation inaccuracies for tractable training, because the majority of large graph models are adopted for extremely large graphs with over many hundreds of thousands nodes \cite{lerer2019pytorch}, \cite{xu2018powerful}.
 
-\subsubsection{Headings: third level}
-\lipsum[6]
+Addressing this problem, the challenges posed by the TPU dataset and emphasizing the necessity for advanced graph embedding methods that account for large graphs while minimizing losses in precision. This concise yet scientific exposition lays the foundation for the exploration and methodology that will follow in subsequent sections.
 
-\paragraph{Paragraph}
-\lipsum[7]
-
-
-
-\section{Examples of citations, figures, tables, references}
-\label{sec:others}
-
-\subsection{Citations}
-Citations use \verb+natbib+. The documentation may be found at
-\begin{center}
-	\url{http://mirrors.ctan.org/macros/latex/contrib/natbib/natnotes.pdf}
-\end{center}
-
-Here is an example usage of the two main commands (\verb+citet+ and \verb+citep+): Some people thought a thing \citep{kour2014real, hadash2018estimate} but other people thought something else \citep{kour2014fast}. Many people have speculated that if we knew exactly why \citet{kour2014fast} thought this\dots
-
-\subsection{Figures}
-\lipsum[10]
-See Figure \ref{fig:fig1}. Here is how you add footnotes. \footnote{Sample of the first footnote.}
-\lipsum[11]
 
 \begin{figure}
-	\centering
-	\includegraphics[width=0.5\textwidth]{../figures/log_reg_cs_exp.eps}
-	\caption{Sample figure caption.}
-	\label{fig:fig1}
+\label{fig:tpu_graph}
+    \centering
+    \includegraphics[scale=0.5]{figures/tpu_graph_examples.png}
+    \caption{A node represents a tensor operator, annotated with its output tensor shape $[n0, n1, ...]$,
+where $n_i$
+is the size of dimension i. Layout $\{d0, d1, ...\}$ represents minor-to-major ordering in
+memory. Applied configurations are highlighted in \textcolor{red}{red}, and other valid configurations are highlighted
+in \textcolor{SkyBlue}{blue}. A layout configuration specifies the layouts of inputs and outputs of influential operators (i.e.,
+convolution and reshape). A copy operator is inserted when there is a layout mismatch.}
 \end{figure}
 
-\subsection{Tables}
-See awesome Table~\ref{tab:table}.
+\section{Approach}
+\label{sec:approach}
 
-The documentation for \verb+booktabs+ (`Publication quality tables in LaTeX') is available from:
-\begin{center}
-	\url{https://www.ctan.org/pkg/booktabs}
-\end{center}
+To tackle the aforementioned challenges, Graph Segment Training (GST) was employed as illustrated in Fig. \ref{fig:main_schema}. This method involves dividing each large graph into smaller, controlled-size segments during the preprocessing phase. Throughout the training process, a random subset of segments at each step is selected, updating the model without utilizing the entire graph, i.e. $$\mathcal{G}^{(i)} = \bigoplus \mathcal{G}^{(i)}_{j}, \; \; \; \; \; j \in \mathcal{J} = \{1, ... , \frac{\mathcal{L}(\mathcal{G}^{(i)})}{\mathcal{K}}\}$$, where $\mathcal{K}$ is maximum allowed subgraph nodes count and $\mathcal{L}(\mathcal{G}^{(i)})$ is a count of nodes in graph $\mathcal{G}^{(i)}$ (see \cite{cao2023learning} for more details). 
 
+Consequently, intermediate activations must only be maintained for a few segments during backpropagation, while embeddings for the remaining segments are generated without preserving intermediate activations:
+$$\bigoplus \mathcal{G}^{(i)}_{j} = (\bigoplus_{k \in \mathcal{Y}} \mathcal{G}^{(i)}_{k}) + (\bigoplus_{m \in \mathcal{M}} \mathcal{G}^{(i)}_{m}), \; \; \; \; \;j \in \mathcal{J} = \{1, ... , \frac{\mathcal{L}(\mathcal{G}^{(i)})}{\mathcal{K}}\}, $$
+
+$$\mathcal{Y} \cup \mathcal{M} = \mathcal{J}, \:\:\:\;\: \mathcal{Y}  \cap \mathcal{M} = \varnothing $$
+By subsequently merging all segment embeddings, we produce an embedding for the original large graph, facilitating prediction.
+
+The approach ensures that each large graph adheres to an upper bound on memory consumption during training, regardless of its initial size. Consequently, this method enables training on large graphs without encountering out-of-memory (OOM) issues, even when computational resources are limited.
+
+To further enhance the efficiency of the training process, a historical embedding table is incorporated, streamlining the generation of graph segment embeddings that do not necessitate gradients. By leveraging historical embeddings, we bypass superfluous computation on these segments.
+
+Each $\mathcal{G}^{(i)}_{j}$ embedding is a result of applying three type of encoders, as shown in \ref{fig:main_schema}, i.e.:
+$$
+\mathcal{G}^{(i)}_{j} = \mathcal{M}_1(opcodes) + \mathcal{M}_2(configs) + \mathcal{M}_3(nodes),
+$$
+where $\mathcal{M}_i$ is appropriate embedder (linear layer without bias in this case).
+
+Notably, topological sorting of nodes in the dataset allows for more effective segmentation by taking contiguous subsequences of nodes.
+
+\begin{figure}
+\label{fig:main_schema}
+    \centering
+    \includegraphics[scale=0.6]{figures/main_schema.png}
+    \caption{Used GST approach for segment training. Red arrows show the gradient flow during the backward propagation. For each feature type used separate embedder.}
+\end{figure}
+\section{Experiments}
+
+To evaluate Graph Segment Training (GST) approach, two common baseline models were implemented for comparison. The first baseline, referred to as the \textit{Pooling Model}, employs a linear layer over the mean-pooled configuration features and node features across the entire graph.
+
+The second approach, similar to GST, does not include graph feature sequence partitioning. Instead, it selects a random contiguous subsequence of nodes, and prior to backpropagation, halts gradients from all other nodes (see Fig. \ref{fig:baseline_scheme}). This model is designated as \textit{Partitioning}. Additionally, we applied the Graph Attention Network (GAT, \cite{velivckovic2017graph}) to this problem for further comparison.
+
+The comparative results can be found in Tab. \ref{tab:table}. As evidenced by the experimental data, the GST approach maintains reasonable quality while enabling training on large graphs. Applying GAT directly without the GST method results in memory limitations. Simultaneously, the \textit{Partitioning} training demonstrates reduced performance despite employing the same GAT model, underscoring the significance of the GST method to model performance. Moreover, GST preserves a quality comparable to the GAT model trained on a full graph for moderate graphs, showcasing the strong graph representation learning capability when dealing with large graphs.
 
 \begin{table}
-	\caption{Sample table title}
+	\caption{Comparisson of different methods across the graphs}
 	\centering
-	\begin{tabular}{lll}
+	\begin{tabular}{llllll}
 		\toprule
-		\multicolumn{2}{c}{Part}                   \\
-		\cmidrule(r){1-2}
-		Name     & Description     & Size ($\mu$m) \\
+		\multicolumn{5}{c}{TPU graph type}                   \\
+		\cmidrule(r){1-5}
+		Tile XLA \tablefootnote{Here used another metric written as $Q = 2 - \frac{min_{i \in K} y_{pred}}{min_{i \in A} y}$, where $K$ = 5 - top predicted configurations actual runtimes, A - real top configurations}     &  Layout nlp random     &  Layout nlp default     & Layout xla random & Layout xla default     & Method \\
 		\midrule
-		Dendrite & Input terminal  & $\sim$100     \\
-		Axon     & Output terminal & $\sim$10      \\
-		Soma     & Cell body       & up to $10^6$  \\
+		0.85     &  0.82 &  0.42     & 0.26 & 0.11  & GST     \\
+		0.45     &  0.32   &  0.12  & 0.11     & 0.05 & Pooling Model      \\
+		0.67     &  0.62  &  0.27   & 0.21     & 0.12       & Partitioning  \\
+            0.92     &  OOM   &  OOM  & OOM     & OOM & GAT      \\
 		\bottomrule
 	\end{tabular}
 	\label{tab:table}
 \end{table}
+\begin{figure}
+\label{fig:baseline_scheme}
+    \centering
+    \includegraphics[scale=0.5]{figures/baseline_scheme.png}
+    \caption{Baseline with graph backward partition. The only subsequence of nodes embeddings chosen to make a backward pass. Forward pass flow shown as black arrows, red arrows show backward pass path.}
+\end{figure}
 
-\subsection{Lists}
-\begin{itemize}
-	\item Lorem ipsum dolor sit amet
-	\item consectetur adipiscing elit.
-	\item Aliquam dignissim blandit est, in dictum tortor gravida eget. In ac rutrum magna.
-\end{itemize}
+\section{Conclusion}
+In this study, a solution to alleviate the challenges associated with large graph representation is presented in the context of TPU compiler optimization. Proposed method, Graph Segment Training (GST), enables efficient training on large graphs while consuming significantly less GPU/TPU memory, delivering quality comparable to full graph training.
 
+As this research is ongoing, it is planned to implement further improvements to enhance the GST framework. It is anticipated that the findings and advancements presented in this paper will contribute to more efficient AI training and evaluation processes. This may ultimately lead to a reduced carbon footprint and facilitate the development of larger models capable of achieving new state-of-the-art results.
 
+\newpage
 \bibliographystyle{unsrtnat}
 \bibliography{references}
 
