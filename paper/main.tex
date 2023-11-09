@@ -17,7 +17,8 @@
 \usepackage[dvipsnames]{xcolor}
 \usepackage{tablefootnote}
 \usepackage{amssymb}
-
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
 
 \title{Optimizing Computational Graph Configurations for TPU Compilers with GNNs}
 
@@ -125,7 +126,7 @@ convolution and reshape). A copy operator is inserted when there is a layout mis
 \section{Approach}
 \label{sec:approach}
 
-To tackle the aforementioned challenges, Graph Segment Training (GST) was employed as illustrated in Fig. \ref{fig:main_schema}. This method involves dividing each large graph into smaller, controlled-size segments during the preprocessing phase. Throughout the training process, a random subset of segments at each step is selected, updating the model without utilizing the entire graph, i.e. $$\mathcal{G}^{(i)} = \bigoplus \mathcal{G}^{(i)}_{j}, \; \; \; \; \; j \in \mathcal{J} = \{1, ... , \frac{\mathcal{L}(\mathcal{G}^{(i)})}{\mathcal{K}}\}$$, where $\mathcal{K}$ is maximum allowed subgraph nodes count and $\mathcal{L}(\mathcal{G}^{(i)})$ is a count of nodes in graph $\mathcal{G}^{(i)}$ (see \cite{cao2023learning} for more details). 
+To tackle the aforementioned challenges, Graph Segment Training (GST) was employed as illustrated in Fig. \ref{fig:main_schema}. This method involves dividing each large graph into smaller, controlled-size segments during the preprocessing phase. Throughout the training process, a random subset of segments at each step is selected, updating the model without utilizing the entire graph, i.e. $$\mathcal{G}^{(i)} = \bigoplus \mathcal{G}^{(i)}_{j}, \; \; \; \; \; j \in \mathcal{J} = \{1, ... , \frac{\mathcal{L}(\mathcal{G}^{(i)})}{\mathcal{K}}\},$$ where $\mathcal{K}$ is maximum allowed subgraph nodes count and $\mathcal{L}(\mathcal{G}^{(i)})$ is a count of nodes in graph $\mathcal{G}^{(i)}$ (see \cite{cao2023learning} for more details). 
 
 Consequently, intermediate activations must only be maintained for a few segments during backpropagation, while embeddings for the remaining segments are generated without preserving intermediate activations:
 $$\bigoplus \mathcal{G}^{(i)}_{j} = (\bigoplus_{k \in \mathcal{Y}} \mathcal{G}^{(i)}_{k}) + (\bigoplus_{m \in \mathcal{M}} \mathcal{G}^{(i)}_{m}), \; \; \; \; \;j \in \mathcal{J} = \{1, ... , \frac{\mathcal{L}(\mathcal{G}^{(i)})}{\mathcal{K}}\}, $$
@@ -144,6 +145,27 @@ $$
 where $\mathcal{M}_i$ is appropriate embedder (linear layer without bias in this case).
 
 Notably, topological sorting of nodes in the dataset allows for more effective segmentation by taking contiguous subsequences of nodes.
+
+The final prediction is the result of MLP layer applied to $\mathcal{G}^{(i)}_{j}$. The algorithm is written in List. \ref{alg:mainalgorithm}. In the experiments pairwise hinge loss was used.
+\begin{algorithm}
+\caption{GST TPU prediction algorithm}\label{alg:mainalgorithm}
+\begin{algorithmic}[1]
+\Procedure{GST\_TPU}{$\mathcal{G}^{(i)}, b$}\Comment{retrieve rank of given graph representation with backward on b parts}
+\State $n \gets \lceil \frac{\mathcal{L}(\mathcal{G}^{(i)})}{\mathcal{K}} \rceil$
+\State $\mathcal{Y} \gets RandSubset(\{1, ..., n\}, b)$\Comment{Sample min(b, n) items of set}
+\State $E \gets  Zeroslike(emb)$\Comment{$emb$ is embedding dimension, this variable keeps final graph embedding}
+\For{$j \in \{1, ... , n\}$}\Comment{For each graph part}
+\State $\mathcal{G}^{(i)}_{j} \gets Slice(\mathcal{G}^{(i)}, (i-1)*\mathcal{K}, i*\mathcal{K})$\Comment{Subgraph is a node and edges slice}
+\If{$j \in \mathcal{Y}$} \Comment{$\mathcal{M}$ is a model (GAT)}
+\State $ E +=  \mathcal{M}(\mathcal{M}_1(opcodes \gets \mathcal{G}^{(i)}_{j}) + \mathcal{M}_2(configs \gets \mathcal{G}^{(i)}_{j}) + \mathcal{M}_3(nodes \gets \mathcal{G}^{(i)}_{j}))$
+\Else
+\State $ E +=  StopGrad(\mathcal{M} (\mathcal{M}_1(opcodes \gets \mathcal{G}^{(i)}_{j}) + \mathcal{M}_2(configs \gets \mathcal{G}^{(i)}_{j}) + \mathcal{M}_3(nodes \gets \mathcal{G}^{(i)}_{j})))$
+\EndIf
+\EndFor\label{euclidendwhile}
+\State \textbf{return} $E$\Comment{The resulted embedding which may be used to train model}
+\EndProcedure
+\end{algorithmic}
+\end{algorithm}
 
 \begin{figure}
 \label{fig:main_schema}
