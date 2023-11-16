@@ -206,7 +206,7 @@ The comparative results can be found in Tab. \ref{tab:table}. As evidenced by th
 \end{figure}
 
 \section{Conclusion}
-In this study, a solution to alleviate the challenges associated with large graph representation is presented in the context of TPU compiler optimization. Proposed method, Graph Segment Training (GST), enables efficient training on large graphs while consuming significantly less GPU/TPU memory, delivering quality comparable to full graph training.
+In this study, a solution to alleviate the challenges associated with large graph representation is presented in the context of TPU compiler optimization. Proposed method, Graph Segment Training (GST), enables efficient training on large graphs while consuming significantly less GPU/TPU memory, delivering quality comparable to full graph training. At the same time, this method is not appropriate for common graphs with considerable sizes, because in this case assumption about embeddings aggregation is not reasonable. These limitations show that this is task-specific approach which is, however is well suitable for large scale graphs.
 
 As this research is ongoing, it is planned to implement further improvements to enhance the GST framework. It is anticipated that the findings and advancements presented in this paper will contribute to more efficient AI training and evaluation processes. This may ultimately lead to a reduced carbon footprint and facilitate the development of larger models capable of achieving new state-of-the-art results.
 
